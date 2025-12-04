@@ -1,4 +1,4 @@
-#ComfyUI Danbooru 标签分类器
+# ComfyUI Danbooru 标签分类器
 
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-Node-blue)](https://github.com/comfyanonymous/ComfyUI)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-green)](https://www.python.org/)
