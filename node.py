@@ -7,14 +7,10 @@ import torch
 import hashlib
 import json
 
-# ==========================================
 # 全局缓存字典
-# ==========================================
 _tag_cache = {}
 
-# ==========================================
-# 处理类（带缓存）
-# ==========================================
+# 处理类
 class DanbooruTagSorter:
     def __init__(self, excel_path, category_mapping, new_category_order, default_category="未归类词"):
         self.excel_path = excel_path
@@ -28,8 +24,7 @@ class DanbooruTagSorter:
         return self.category_mapping.get(key, self.default_category)
     
     def _generate_cache_key(self):
-        """生成缓存键，基于所有输入参数"""
-        # 使用所有参数生成一个唯一的哈希键
+        # 生成哈希键
         params = {
             "excel_path": self.excel_path,
             "category_mapping": json.dumps(sorted(self.category_mapping.items())),
@@ -37,7 +32,7 @@ class DanbooruTagSorter:
             "default_category": self.default_category
         }
         
-        # 将参数字典转换为字符串并生成哈希
+        # 将参数字典转换为字符串、并生成哈希
         params_str = json.dumps(params, sort_keys=True)
         cache_key = hashlib.md5(params_str.encode()).hexdigest()
         return cache_key
@@ -73,9 +68,8 @@ class DanbooruTagSorter:
                 'rank': index
             }
         
-        print(f"数据库加载完成，共索引 {len(tag_db)} 个 Tag。已缓存。")
-        
-        # 保存到缓存
+        print(f"数据库加载完成，共索引 {len(tag_db)} 个 Tags，已缓存。")
+
         _tag_cache[cache_key] = tag_db
         
         return tag_db
@@ -97,30 +91,25 @@ class DanbooruTagSorter:
                 new_category_buckets[group_key].append((info['rank'], tag))
             else:
                 unmatched_tags.append(tag)
-        
-        # 构建分类字典（修复：确保所有分类都有条目）
+
         categorized_tags = {}
         for category in self.new_category_order:
             categorized_tags[category] = ""
-        
-        # 构建最终输出
+
         final_lines = []
         
-        # 按照新分类的顺序输出
+        # 按照新分类顺序 输出
         for category in self.new_category_order:
             if category in new_category_buckets:
                 items = sorted(new_category_buckets[category], key=lambda x: x[0])
                 tags_str = ", ".join([item[1] for item in items])
-                
-                # 更新分类字典
                 categorized_tags[category] = tags_str
-                
                 # 根据add_category_comment参数决定是否添加分类名称行
                 if add_category_comment:
                     final_lines.append(f"{category}:")
                 
                 final_lines.append(f"{tags_str},")
-                # 移除已处理的分类
+
                 del new_category_buckets[category]
         
         # 处理未在分类顺序中定义的新分类
@@ -129,18 +118,15 @@ class DanbooruTagSorter:
             for category in sorted(remaining_categories):
                 items = sorted(new_category_buckets[category], key=lambda x: x[0])
                 tags_str = ", ".join([item[1] for item in items])
-                
-                # 更新分类字典（如果这个分类不在预设分类中，我们添加到"未归类词"）
                 if category not in categorized_tags:
                     categorized_tags[category] = tags_str
-                
                 # 根据add_category_comment参数决定是否添加分类名称行
                 if add_category_comment:
                     final_lines.append(f"{category}:")
                 
                 final_lines.append(f"{tags_str},")
         
-        # 处理完全未识别的 Tag
+        # 处理完全未识别的Tags
         if unmatched_tags:
             unmatched_str = ", ".join(unmatched_tags)
             final_lines.append(unmatched_str)
@@ -152,9 +138,7 @@ class DanbooruTagSorter:
         
         return "\n".join(final_lines), categorized_tags
 
-# ==========================================
-# ComfyUI 节点
-# ==========================================
+# ComfyUI
 class DanbooruTagSorterNode:
     @classmethod
     def INPUT_TYPES(cls):
@@ -277,7 +261,8 @@ class DanbooruTagSorterNode:
     FUNCTION = "process"
     CATEGORY = "Danbooru Tags"
     
-    def process(self, tags, excel_file="", category_mapping="", new_category_order="", default_category="未归类词", force_reload=False, is_comment=True):
+    def process(self, tags, excel_file="", category_mapping="",
+                new_category_order="", default_category="未归类词", force_reload=False, is_comment=True):
         try:
             # 解析输入参数
             if category_mapping:
@@ -295,9 +280,9 @@ class DanbooruTagSorterNode:
                 try:
                     new_category_order_list = ast.literal_eval(new_category_order)
                     if not isinstance(new_category_order_list, list):
-                        raise ValueError("new_category_order 必须是列表格式")
+                        raise ValueError("new_category_order必须是列表格式")
                 except Exception as e:
-                    print(f"解析 new_category_order 失败，使用默认值: {e}")
+                    print(f"解析 new_category_order失败，使用默认值: {e}")
                     new_category_order_list = self._get_default_order()
             else:
                 new_category_order_list = self._get_default_order()
@@ -307,12 +292,12 @@ class DanbooruTagSorterNode:
             
             # 检查文件是否存在
             if not os.path.exists(excel_file):
-                raise FileNotFoundError(f"Excel文件不存在: {excel_file}")
+                raise FileNotFoundError(f"库不存在: {excel_file}")
             
             # 如果强制重新加载，清除相关缓存
             if force_reload:
                 self._clear_cache(excel_file, category_mapping_dict, new_category_order_list, default_category)
-                print("已清除缓存，将重新加载Excel文件")
+                print("已清除缓存，将重新加载库")
             
             # 创建分类器并处理标签
             sorter = DanbooruTagSorter(
@@ -325,27 +310,22 @@ class DanbooruTagSorterNode:
             # 传递is_comment参数给process_tags方法
             all_tags_result, categorized_tags = sorter.process_tags(tags, add_category_comment=is_comment)
             
-            # 按照固定顺序输出12个分类
+            # 按照固定顺序输出
             output_order = self._get_default_order()
             outputs = []
             for category in output_order:
-                # 从categorized_tags中获取对应分类的标签
                 tag_output = categorized_tags.get(category, "")
                 outputs.append(tag_output)
-            
-            # 添加ALL_TAGS作为第13个输出
             outputs.append(all_tags_result)
             
             return tuple(outputs)
             
         except Exception as e:
             print(f"DanbooruTagSorterNode 错误: {e}")
-            # 返回空值
             empty_outputs = [""] * 13
             return tuple(empty_outputs)
     
     def _get_default_mapping(self):
-        """获取默认的分类映射"""
         return {
             ("画面", "艺术家风格"): "画师词",
             ("画面", "艺术派系"): "画师词",
@@ -426,13 +406,11 @@ class DanbooruTagSorterNode:
         }
     
     def _get_default_order(self):
-        """获取默认的分类顺序"""
         return ["画师词", "背景词", "人物对象词", "角色特征词", "角色五官词", "角色部位词", "性征部位词", "服饰词", "动作词", "角色表情词", "镜头词", "未归类词"]
     
     def _clear_cache(self, excel_file, category_mapping, new_category_order, default_category):
-        """清除特定配置的缓存"""
         try:
-            # 创建一个临时的sorter来生成缓存键
+            # 创建个临时的sorter生成缓存键
             temp_sorter = DanbooruTagSorter(
                 excel_file,
                 category_mapping,
@@ -447,10 +425,7 @@ class DanbooruTagSorterNode:
         except Exception as e:
             print(f"清除缓存失败: {e}")
 
-# ==========================================
-# 额外的节点：用于手动清除所有缓存
-# ==========================================
-class DanbooruTagClearCacheNode:
+class DanbooruTagClearCacheNode: # 手动清除缓存
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -465,11 +440,10 @@ class DanbooruTagClearCacheNode:
     OUTPUT_NODE = True
     
     def clear_cache(self):
-        """清除所有缓存"""
         global _tag_cache
         cache_count = len(_tag_cache)
         _tag_cache.clear()
-        print(f"已清除所有Danbooru Tag缓存 ({cache_count} 个缓存项)")
+        print(f"已清除所有Danbooru Tags缓存 ({cache_count} 个缓存项)")
         return ()
 
 # Register nodes
