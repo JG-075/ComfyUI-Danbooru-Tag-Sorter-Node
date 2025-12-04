@@ -1,10 +1,11 @@
-# Danbooru Tag Sorter Node for ComfyUI
+#ComfyUI Danbooru 标签分类器
 
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-Node-blue)](https://github.com/comfyanonymous/ComfyUI)
 [![Python](https://img.shields.io/badge/Python-3.8%2B-green)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-一个高效的 Danbooru 标签分类器 ComfyUI 节点，能够自动将输入的 Danbooru 标签按照预设的分类系统进行智能分类和排序。
+一个高效的 Danbooru 标签分类器 ComfyUI 节点，能够自动将输入的杂乱 Danbooru 标签按照预设的分类系统进行智能分类和排序。  
+开发用于配合WD1.4反推图片使用。
 
 ## ✨ 功能特点
 
