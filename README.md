@@ -52,7 +52,7 @@ git clone https://github.com/RafealaSilva/ComfyUI-Danbooru-Tag-Sorter-Node.git
 ```
 
 ### 输出示例
-**当"是否注释"为 True 时：**
+**当is_comment 为 True 时：**
 ```text
 画师词:
 masterpiece, best quality,
@@ -68,7 +68,7 @@ classroom,
 looking at viewer,
 ```
 
-**当"是否注释"为 False 时：**
+**当is_comment 为 False 时：**
 ```text
 masterpiece, best quality,
 blonde hair, blue eyes,
