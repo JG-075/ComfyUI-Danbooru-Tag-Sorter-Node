@@ -4,7 +4,7 @@
 [![Python](https://img.shields.io/badge/Python-3.8%2B-green)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-你是否还在为别人给的串很难看懂而烦恼？是否还在为反推出的一堆史山tag而焦虑？  
+你是否还在为别人给的串很难看懂而烦恼？是否还在为反推出一堆史山tag而焦虑？  
 一个高效的 Danbooru 标签分类器 ComfyUI 节点，能够自动将输入的杂乱 Danbooru 标签按照预设的分类系统进行智能分类和排序！  
 开发用于配合WD1.4反推图片使用。
 
@@ -62,14 +62,14 @@ pip install openpyxl pandas
 ```text
 画师词:
 masterpiece, best quality,
-角色特征词:
-blonde hair, blue eyes,
-角色表情词:
-smile,
-服饰词:
-school uniform,
 背景词:
 classroom,
+角色特征词:
+blonde hair, blue eyes,
+服饰词:
+school uniform,
+角色表情词:
+smile,
 镜头词:
 looking at viewer,
 ```
@@ -77,10 +77,10 @@ looking at viewer,
 **当is_comment 为 False 时：**
 ```text
 masterpiece, best quality,
-blonde hair, blue eyes,
-smile,
-school uniform,
 classroom,
+blonde hair, blue eyes,
+school uniform,
+smile,
 looking at viewer,
 ```
 
@@ -133,7 +133,7 @@ looking at viewer,
     ("画面", "艺术派系"): "画师词",
     ("画面", "艺术类型"): "画师词",
     ("画面", "艺术风格"): "画师词",
-    # ... 更多映射规则或需要自定义请前往node.py第176行开始查看
+    # ... 更多映射规则或需要自定义请在节点内编辑，或前往node.py第160行设置default值，保证格式相同。
 }
 ```
 
@@ -157,4 +157,4 @@ looking at viewer,
 节点内置了缓存机制：
 - **自动缓存**：首次加载后自动缓存到内存
 - **强制重载**：设置 `force_reload=True` 强制重新加载
-- **清除缓存**：使用 "Danbooru Tag Clear Cache" 节点清除所有缓存
+- **清除缓存**：使用 "Danbooru Tag Clear Cache" 节点清除所有缓存，可直接搜索该节点
