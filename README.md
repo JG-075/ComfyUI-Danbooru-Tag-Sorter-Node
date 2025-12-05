@@ -35,6 +35,7 @@ git clone https://github.com/RafealaSilva/ComfyUI-Danbooru-Tag-Sorter-Node.git
 
 ### 依赖要求
 - Python 3.8+
+- openpyxl 库
 - pandas 库
 
 ## 🎮 使用方法
