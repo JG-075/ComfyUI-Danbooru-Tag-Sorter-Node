@@ -17,7 +17,10 @@
 3.  **修复**：修复了V1.0分类后输出的tag串中，最末尾的tag没有逗号的问题。
 
 ## ✨ 功能特点
-![节点预览](example/sample.png)
+![节点预览](example/preview.png)
+```text
+---图源：www.bilibili.com/video/BV1TeSVB3ELL【侵权删除！】
+```
 
   - **智能标签分类**：基于本地 Excel 数据库自动分类 Danbooru 标签，相比调用 LLM 更快、更省钱（完全免费！）
   - **模块化设计（V2.0）**：采用 **Sorter节点 (打包)** + **Getter节点 (提取)** 的模式，更注重用户自主搭配各种Tag组成新的大类输出；界面更简洁，想取哪个分类就取哪个，告别杂乱的连线。
