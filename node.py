@@ -2,464 +2,391 @@ import pandas as pd
 from collections import defaultdict
 import os
 import ast
-import comfy
-import torch
 import hashlib
 import json
+import re
+import torch
+import comfy
 
-# 全局缓存字典
 _tag_cache = {}
 
+def load_defaults_from_json():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(current_dir, "defaults_config.json")
 
-# 处理类
+    fallback_mapping = "{}"
+    fallback_order = "[]"
+
+    if not os.path.exists(config_path):
+        print(f"[DanbooruTagSorter] Warning喵：未找到配置文件{config_path}喵，将使用空默认值喵。")
+        return fallback_mapping, fallback_order
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        order_list = data.get("order", [])
+        default_order_text = json.dumps(order_list, ensure_ascii=False)
+
+        mapping_list = data.get("mapping", [])
+        mapping_lines = []
+
+        for i in mapping_list:
+            if len(i) >= 3:
+                cat, sub, target = i[0], i[1], i[2]
+                # 复刻PythonDict的字符串行
+                line = f'    ("{cat}", "{sub}"): "{target}"'  # 加个tab
+                mapping_lines.append(line)
+
+        # 搞半天要自己拼.jpg
+        default_mapping_text = "{\n" + ",\n".join(mapping_lines) + "\n}"
+
+        print(f"Sorter成功加载配置文件喵: {config_path}")
+        return default_mapping_text, default_order_text
+
+    except Exception as e:
+        print(f"Sorter读取配置文件失败喵，请检查defaults_config.json路径及语法是否正确喵: {e}")
+        return fallback_mapping, fallback_order
+
+# 节点加载时先运行一次初始化默认值
+DEFAULT_MAPPING_TEXT, DEFAULT_ORDER_TEXT = load_defaults_from_json()
+
+# Sorter类
 class DanbooruTagSorter:
     def __init__(self, excel_path, category_mapping, new_category_order, default_category="未归类词"):
         self.excel_path = excel_path
-        self.category_mapping = category_mapping
-        self.new_category_order = new_category_order
+        self.category_mapping = category_mapping # 映射规则 {('原有大类', '原有小类'): '新分类名'}
+        self.new_category_order = new_category_order  # 定义输出时各个分类及各个分类的顺序
         self.default_category = default_category
-        self.tag_db = self._load_database_with_cache()
+        self.tag_db = self._load_database_with_cache() # 初始化立刻先尝试加载或从缓存获取数据库
 
+    # 根据原始的大类小类查表，得到新的分类名
     def get_new_category(self, original_category, original_subcategory):
         key = (original_category, original_subcategory)
+        # 如果查不到就返回default_category，由用户自己设定
         return self.category_mapping.get(key, self.default_category)
 
+    # 生成哈希键
+    # 判断当前的配置参数是否和上次缓存一致
     def _generate_cache_key(self):
-        # 生成哈希键
         params = {
             "excel_path": self.excel_path,
+            # 将字典排序后dump为string，这样即使字典的key顺序不同，生成的哈希也一致
             "category_mapping": json.dumps(sorted(self.category_mapping.items())),
             "new_category_order": json.dumps(self.new_category_order),
             "default_category": self.default_category
         }
-
-        # 将参数字典转换为字符串、并生成哈希
         params_str = json.dumps(params, sort_keys=True)
-        cache_key = hashlib.md5(params_str.encode()).hexdigest()
-        return cache_key
+        hasher = hashlib.md5(params_str.encode(encoding = 'utf-8')).hexdigest()
+        # 返回MD5
+        return hasher
 
+    # 加载数据库
     def _load_database_with_cache(self):
-        # 生成缓存键
         cache_key = self._generate_cache_key()
-
+        # 检查缓存是否命中
         if cache_key in _tag_cache:
             print(f"从缓存加载数据库喵:{self.excel_path}")
             return _tag_cache[cache_key]
-        # 缓存没有就重载数据库
-        print(f"正在读取数据库喵:{self.excel_path} ...")
-        if not os.path.exists(self.excel_path):
-            raise FileNotFoundError(f"找不到文件喵:{self.excel_path}\n如果是复制绝对路径请删除两边引号喵")
-        if self.excel_path.endswith('.csv'):
-            df = pd.read_csv(self.excel_path)
-        else:
-            df = pd.read_excel(self.excel_path)
-        tag_db = {}
-        for index, row in df.iterrows():
-            eng_tag = str(row['english']).strip().lower()
-            cat = str(row['category']).strip()
-            sub = str(row['subcategory']).strip()
-            new_cat = self.get_new_category(cat, sub)
-            clean_key = eng_tag.replace('_', ' ')
+        print(f"正在读取数据库喵:{self.excel_path} ...") # 如果缓存未命中，则读取数据库
 
-            tag_db[clean_key] = {
-                'original': eng_tag,
-                'original_category': cat,
-                'original_subcategory': sub,
-                'new_category': new_cat,
-                'rank': index
-            }
+        # 基础校验
+        if not self.excel_path or not os.path.exists(self.excel_path):
+            print(f"警告喵：找不到文件或路径为空喵 {self.excel_path}")
+            return {}
 
-        print(f"数据库加载完成喵，共索引 {len(tag_db)} 个 Tags喵，已缓存喵。")
+        try:
+            # 读取csv或者excel文件
+            if self.excel_path.endswith('.csv'):
+                df = pd.read_csv(self.excel_path)
+            else:
+                df = pd.read_excel(self.excel_path)
 
-        _tag_cache[cache_key] = tag_db
+            tag_db = {}
+            # 遍历每一行，构建哈希表查询
+            for index, row in df.iterrows():
+                # 清洗，转小写、去空格
+                eng_tag = str(row['english']).strip().lower()
+                cat = str(row['category']).strip()
+                sub = str(row['subcategory']).strip()
 
-        return tag_db
+                # 计算该tag映射后是谁家的兵
+                new_cat = self.get_new_category(cat, sub)
+                # 所有的下划线都替换为空格，匹配输入习惯
+                clean_key = eng_tag.replace('_', ' ')
+                tag_db[clean_key] = {
+                    'original': eng_tag,
+                    'original_category': cat,
+                    'original_subcategory': sub,
+                    'new_category': new_cat,
+                    'rank': index
+                }
+            print(f"数据库加载完成喵，共索引{len(tag_db)}个 Tags喵。")
 
-    def process_tags(self, raw_string, add_category_comment=True):
+            # 存入全局缓存dict
+            _tag_cache[cache_key] = tag_db
+            return tag_db
+        except Exception as e:
+            print(f"读取数据库文件失败喵，请检查路径是否填写正确喵: {e}")
+            return {}
+
+    # 处理输入的Prompt字符串
+    def process_tags(self, raw_string, add_category_comment=True,
+                     regex_blacklist="", tag_blacklist="",
+                     deduplicate=False):
+        # 拆分输入字符串转列表
         input_tags = [t.strip() for t in raw_string.split(',') if t.strip()]
 
+        # 去重
+        if deduplicate and input_tags:
+            seen = set()
+            unique_tags = []
+            for tag in input_tags:
+                tag_lower = tag.lower()
+                if tag_lower not in seen:
+                    seen.add(tag_lower)
+                    unique_tags.append(tag)
+            input_tags = unique_tags
+
+        # 精确匹配黑名单
+        exact_blacklist_set = set()
+        if tag_blacklist:
+            exact_blacklist_set = {t.strip().lower() for t in tag_blacklist.split(',') if t.strip()}
+
+        # 正则匹配黑名单
+        regex_pattern = None
+        if regex_blacklist:
+            try:
+                regex_pattern = re.compile(regex_blacklist, re.IGNORECASE)
+            except re.error as e:
+                print(f"正则表达式写错了喵:{e}")
+        # 初始化分类buckets
         new_category_buckets = defaultdict(list)
         unmatched_tags = []
 
-        # 匹配
+        # 遍历每一个输入tag进行匹配
         for tag in input_tags:
-            tag_lower = tag.lower()
-            lookup_key = tag_lower.replace('_', ' ')
-
-            if lookup_key in self.tag_db:
+            tag_clean = tag.strip()
+            tag_lower = tag_clean.lower()
+            # 黑名单check
+            if (tag_lower in exact_blacklist_set or
+                    (regex_pattern and regex_pattern.search(tag_clean))):
+                continue
+            lookup_key = tag_lower.replace('_', ' ')# 构造查询Key
+            if lookup_key in self.tag_db:  # 缓存命中
                 info = self.tag_db[lookup_key]
                 group_key = info['new_category']
+                # 将(rank, tag)存入对应分类的桶，rank用于后续组内排序
                 new_category_buckets[group_key].append((info['rank'], tag))
             else:
+                # 缓存未命中就丢到未匹配列表
                 unmatched_tags.append(tag)
 
+        #构建输出
+        # categorized_tags给Getter节点用
         categorized_tags = {}
         for category in self.new_category_order:
             categorized_tags[category] = ""
-
         final_lines = []
 
-        # 按照新分类顺序 输出
+        # 将列表转为"tag1, tag2, "格式
+        def format_tag_list(tag_list):
+            if not tag_list:
+                return ""
+            else:
+                return ", ".join(tag_list) + ", "
+
+        #按照用户定义的顺序new_category_order组装
         for category in self.new_category_order:
             if category in new_category_buckets:
+                # 组内排序，根据数据库中的rank排序
                 items = sorted(new_category_buckets[category], key=lambda x: x[0])
-                tags_str = ", ".join([item[1] for item in items])
-                categorized_tags[category] = tags_str
+                current_tags_list = [item[1] for item in items]
+                tags_str = format_tag_list(current_tags_list)
+                categorized_tags[category] = tags_str  # 存入dict
+                # 拼接最终
                 if add_category_comment:
-                    final_lines.append(f"{category}:")
-
-                final_lines.append(f"{tags_str},")
-
+                    final_lines.append(f"{category}:")  # 添加 "新分类名:" 注释
+                final_lines.append(tags_str)
+                # 处理完后从桶中删除，后续可以处理剩余分类
                 del new_category_buckets[category]
 
-        # 处理未在分类顺序中定义的新分类
+        # 处理Order中未定义但Mapping中缺存在的分类，防止漏掉数据
         remaining_categories = list(new_category_buckets.keys())
         if remaining_categories:
             for category in sorted(remaining_categories):
                 items = sorted(new_category_buckets[category], key=lambda x: x[0])
-                tags_str = ", ".join([item[1] for item in items])
+                tags_str = format_tag_list([item[1] for item in items])
                 if category not in categorized_tags:
                     categorized_tags[category] = tags_str
                 if add_category_comment:
                     final_lines.append(f"{category}:")
+                final_lines.append(tags_str)
 
-                final_lines.append(f"{tags_str},")
-
-        # 处理完全未识别的Tags
+        #处理完全未匹配的Tags
         if unmatched_tags:
-            unmatched_str = ", ".join(unmatched_tags)
+            unmatched_str = format_tag_list(unmatched_tags)
+            target_unk = self.default_category
+            if target_unk not in categorized_tags:
+                categorized_tags[target_unk] = ""
+            categorized_tags[target_unk] += unmatched_str # 追加到默认
+            if add_category_comment:
+                final_lines.append(f"{target_unk}:")
             final_lines.append(unmatched_str)
-            # 将未识别的标签添加到未归类词
-            if categorized_tags.get("未归类词"):
-                categorized_tags["未归类词"] += ", " + unmatched_str if categorized_tags["未归类词"] else unmatched_str
-            else:
-                categorized_tags["未归类词"] = unmatched_str
-
         return "\n".join(final_lines), categorized_tags
 
 
-# ComfyUI
+
+
+
+#ComfyUI
 class DanbooruTagSorterNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        # 输入节点：tags文本框、excel路径、两个配置文本框Mapping/Order
+        return {
+            "required": {
+                "tags": ("STRING", {"multiline": True, "default": "", "placeholder": "1girl, solo..."}),
+            },
+            "optional": {
+                "excel_file": ("STRING", {"multiline": False}),
+                "category_mapping": ("STRING", {
+                    "multiline": True,
+                    "default": DEFAULT_MAPPING_TEXT,  # 加载自同目录json
+                    "placeholder": "这里请输入小类映射到新分类的字典喵...注意语法正确喵..."
+                }),
+                "new_category_order": ("STRING", {
+                    "multiline": True,
+                    "default": DEFAULT_ORDER_TEXT,  # 加载自json
+                    "placeholder": "这里请输入新分类以及输出顺序喵...注意语法正确喵..."
+                }),
+                "default_category": ("STRING", {"default": "未归类词"}),
+                "regex_blacklist": ("STRING", {"default": ""}),
+                "tag_blacklist": ("STRING", {
+                    "multiline": True,
+                    "default": "",
+                    "placeholder": "这里输入不想输出的tag喵...基础语法是 “tag1, tag2,” 喵..."}),
+                "deduplicate_tags": ("BOOLEAN", {"default": False, "label": "自动去重"}),
+                "validation": ("BOOLEAN", {"default": True, "label": "配置校验"}),
+                "force_reload": ("BOOLEAN", {"default": False, "label": "强制重载"}),
+                "is_comment": ("BOOLEAN", {"default": True, "label": "保留注释"}),
+            }
+        }
+    RETURN_TYPES = ("TAG_BUNDLE", "STRING")
+    RETURN_NAMES = ("分类数据包", "ALL_TAGS")
+    FUNCTION = "process"
+    CATEGORY = "Danbooru Tags"
+
+    def process(self, tags, excel_file="", category_mapping="", new_category_order="",
+                default_category="未归类词", regex_blacklist="", tag_blacklist="",
+                deduplicate_tags=False, validation=True, force_reload=False, is_comment=True):
+
+        def parse_input_data(raw_input, default_text, expected_type):
+            #如果输入已经是预期的对象Dict/List就直接返回
+            if isinstance(raw_input, expected_type):
+                return raw_input
+            #如果是其他非字符串对象就返回到默认文本
+            if not isinstance(raw_input, str):
+                raw_input = default_text
+            #此时确认为字符串，去除首尾空格
+            text = raw_input.strip()
+            if not text:
+                text = default_text
+            #尝试解析
+            try:
+                return json.loads(text)
+            except:
+                try:
+                    val = ast.literal_eval(text)
+                    if isinstance(val, expected_type):
+                        return val
+                    raise ValueError(f"类型不匹配喵，想要这个喵：{expected_type}")
+                except:
+                    # 解析完全失败，尝试解析默认值作为保底
+                    try:
+                        return ast.literal_eval(default_text)
+                    except:
+                        # 默认值都挂了就返回空结构
+                        return {} if expected_type is dict else []
+        #解析
+        try:
+            cat_map = parse_input_data(category_mapping, DEFAULT_MAPPING_TEXT, dict)
+        except Exception as e:
+            print(f"Mapping解析错误喵...{e}")
+            cat_map = {}
+        try:
+            cat_order = parse_input_data(new_category_order, DEFAULT_ORDER_TEXT, list)
+        except Exception as e:
+            print(f"Order解析错误喵...{e}")
+            cat_order = []
+
+        #校验Mapping和Order是否都有
+        if validation:
+            used = set(cat_map.values())
+            defined = set(cat_order)
+            missing = used - defined
+            if missing:
+                # raise中断执行并且提示用户
+                raise ValueError(f"\n[配置错误喵]Mapping中使用了未在Order中定义的分类: {list(missing)}")
+
+        # 运行逻辑
+        if force_reload:
+            global _tag_cache
+            _tag_cache.clear()
+        sorter = DanbooruTagSorter(excel_file, cat_map, cat_order, default_category)
+        all_str, cat_dict = sorter.process_tags(tags, is_comment, regex_blacklist, tag_blacklist, deduplicate_tags)
+        return (cat_dict, all_str)
+
+# Getter
+class DanbooruTagGetterNode:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "tags": ("STRING", {
-                    "multiline": True,
-                    "default": "",
-                    "placeholder": "输入Danbooru标签喵，逗号分隔喵"
-                }),
-            },
-            "optional": {
-                "excel_file": ("STRING", {
-                    "multiline": False,
-                }),
-                "category_mapping": ("STRING", {
-                    "multiline": True,
-                    "default": """{
-    ("画面", "艺术家风格"): "画师词",
-    ("画面", "艺术派系"): "画师词",
-    ("画面", "艺术类型"): "画师词",
-    ("画面", "艺术风格"): "画师词",
-    ("艺术家", "设定"): "画师词",
-    ("画面", "光照"): "背景词",
-    ("画面", "画笔"): "背景词",
-    ("画面", "画面量质"): "背景词",
-    ("画面", "背景"): "背景词",
-    ("画面", "颜色"): "背景词",
-    ("场景", "城市"): "背景词",
-    ("场景", "室内"): "背景词",
-    ("场景", "室外"): "背景词",
-    ("环境", "云"): "背景词",
-    ("环境", "大自然"): "背景词",
-    ("环境", "天气"): "背景词",
-    ("环境", "天空"): "背景词",
-    ("环境", "季节"): "背景词",
-    ("环境", "氛围"): "背景词",
-    ("环境", "水"): "背景词",
-    ("人物", "对象"): "人物对象词",
-    ("人物", "翅膀"): "角色特征词",
-    ("人物", "眼睛"): "角色特征词",
-    ("人物", "头发发型"): "角色特征词",
-    ("人物", "肩部"): "角色部位词",
-    ("人物", "腿部"): "角色部位词",
-    ("人物", "腹部"): "角色部位词",
-    ("人物", "腰部"): "角色部位词",
-    ("人物", "指甲"): "角色部位词",
-    ("人物", "身材"): "角色部位词",
-    ("人物", "胸部"): "性征部位词",
-    ("人物", "性器官"): "性征部位词",
-    ("服饰", "正装"): "服饰词",
-    ("服饰", "衣服风格"): "服饰词",
-    ("服饰", "上半身服装"): "服饰词",
-    ("服饰", "裙子"): "服饰词",
-    ("服饰", "裤子"): "服饰词",
-    ("服饰", "衣服套装"): "服饰词",
-    ("服饰", "袜子"): "服饰词",
-    ("服饰", "鞋子"): "服饰词",
-    ("服饰", "衣服花纹"): "服饰词",
-    ("服饰", "衣服装饰"): "服饰词",
-    ("服饰", "围巾"): "服饰词",
-    ("服饰", "头部装饰物"): "服饰词",
-    ("服饰", "手部装饰物"): "服饰词",
-    ("服饰", "脸部装饰物"): "服饰词",
-    ("服饰", "腿部装饰物"): "服饰词",
-    ("服饰", "其他装饰物"): "服饰词",
-    ("表情动作", "性爱动作"): "动作词",
-    ("表情动作", "基础动作"): "动作词",
-    ("表情动作", "手部动作"): "动作词",
-    ("表情动作", "手抓着某物"): "动作词",
-    ("表情动作", "手放在某地"): "动作词",
-    ("表情动作", "手部拿着某物"): "动作词",
-    ("表情动作", "腿部动作"): "动作词",
-    ("表情动作", "其他动作"): "动作词",
-    ("镜头", "人物视觉朝向"): "角色表情词",
-    ("表情动作", "哭"): "角色表情词",
-    ("表情动作", "笑"): "角色表情词",
-    ("表情动作", "生气"): "角色表情词",
-    ("表情动作", "不开心"): "角色表情词",
-    ("表情动作", "蔑视"): "角色表情词",
-    ("表情动作", "其他表情"): "角色表情词",
-    ("人物", "面部"): "角色五官词",
-    ("人物", "脸型"): "角色五官词",
-    ("人物", "眉毛"): "角色五官词",
-    ("人物", "瞳孔"): "角色五官词",
-    ("人物", "鼻子"): "角色五官词",
-    ("人物", "嘴巴"): "角色五官词",
-    ("人物", "牙齿"): "角色五官词",
-    ("人物", "舌头"): "角色五官词",
-    ("镜头", "人物构图"): "镜头词",
-    ("镜头", "特写镜头"): "镜头词",
-    ("镜头", "其他沟通"): "镜头词",
-    ("镜头", "镜头角度"): "镜头词",
-    ("镜头", "效果"): "镜头词",
-}""",
-                    "placeholder": "输入分类映射字典喵"
-                }),
-                "new_category_order": ("STRING", {
-                    "multiline": True,
-                    "default": "[\"画师词\", \"背景词\", \"人物对象词\", \"角色特征词\", \"角色五官词\", \"角色部位词\", \"性征部位词\", \"服饰词\", \"动作词\", \"角色表情词\", \"镜头词\", \"未归类词\"]",
-                    "placeholder": "输入新分类顺序列表喵"
-                }),
-                "default_category": ("STRING", {
-                    "multiline": False,
-                    "default": "未归类词"
-                }),
-                "force_reload": ("BOOLEAN", {
-                    "default": False,
-                    "label": "强制重新加载"
-                }),
-                "is_comment": ("BOOLEAN", {
-                    "default": True,
-                    "label": "是否注释"
-                }),
+                "tag_bundle": ("TAG_BUNDLE",),
+                "category_name": ("STRING", {"default": "角色特征词", "multiline": False}),
             }
         }
-
-    RETURN_TYPES = (
-    "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING", "STRING",
-    "STRING", "STRING")
-    RETURN_NAMES = (
-    "画师词", "背景词", "人物对象词", "角色特征词", "角色五官词", "角色部位词", "性征部位词", "服饰词", "动作词",
-    "角色表情词", "镜头词", "未归类词", "ALL_TAGS")
-    FUNCTION = "process"
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("Tag String",)
+    FUNCTION = "get_tag"
     CATEGORY = "Danbooru Tags"
 
-    def process(self, tags, excel_file="", category_mapping="",
-                new_category_order="", default_category="未归类词", force_reload=False, is_comment=True):
-        try:
-            # 解析输入参数
-            if category_mapping:
-                try:
-                    category_mapping_dict = ast.literal_eval(category_mapping)
-                    if not isinstance(category_mapping_dict, dict):
-                        raise ValueError("category_mapping必须是字典格式喵")
-                except Exception as e:
-                    print(f"解析category_mapping失败喵，使用默认值喵:{e}")
-                    category_mapping_dict = self._get_default_mapping()
-            else:
-                category_mapping_dict = self._get_default_mapping()
-
-            if new_category_order:
-                try:
-                    new_category_order_list = ast.literal_eval(new_category_order)
-                    if not isinstance(new_category_order_list, list):
-                        raise ValueError("new_category_order必须是列表格式喵")
-                except Exception as e:
-                    print(f"解析new_category_order失败喵，使用默认值喵:{e}")
-                    new_category_order_list = self._get_default_order()
-            else:
-                new_category_order_list = self._get_default_order()
-
-            if not excel_file:
-                excel_file = ""
-
-            # 检查文件是否存在
-            if not os.path.exists(excel_file):
-                raise FileNotFoundError(f"库不存在喵:{excel_file}\n如果是复制绝对路径请删除两边引号喵")
-
-            # 如果强制重新加载，清除相关缓存
-            if force_reload:
-                self._clear_cache(excel_file, category_mapping_dict, new_category_order_list, default_category)
-                print("已清除缓存喵，将重新加载库喵")
-
-            # 创建分类器并处理标签
-            sorter = DanbooruTagSorter(
-                excel_file,
-                category_mapping_dict,
-                new_category_order_list,
-                default_category
-            )
-
-            # 传递is_comment参数给process_tags方法
-            all_tags_result, categorized_tags = sorter.process_tags(tags, add_category_comment=is_comment)
-
-            # 按照固定顺序输出
-            output_order = self._get_default_order()
-            outputs = []
-            for category in output_order:
-                tag_output = categorized_tags.get(category, "")
-                outputs.append(tag_output)
-            outputs.append(all_tags_result)
-
-            return tuple(outputs)
-
-        except Exception as e:
-            print(f"DanbooruTagSorterNode错误喵，气死了喵:{e}")
-            empty_outputs = [""] * 13
-            return tuple(empty_outputs)
-
-    def _get_default_mapping(self):
-        return {
-            ("画面", "艺术家风格"): "画师词",
-            ("画面", "艺术派系"): "画师词",
-            ("画面", "艺术类型"): "画师词",
-            ("画面", "艺术风格"): "画师词",
-            ("艺术家", "设定"): "画师词",
-            ("画面", "光照"): "背景词",
-            ("画面", "画笔"): "背景词",
-            ("画面", "画面量质"): "背景词",
-            ("画面", "背景"): "背景词",
-            ("画面", "颜色"): "背景词",
-            ("场景", "城市"): "背景词",
-            ("场景", "室内"): "背景词",
-            ("场景", "室外"): "背景词",
-            ("环境", "云"): "背景词",
-            ("环境", "大自然"): "背景词",
-            ("环境", "天气"): "背景词",
-            ("环境", "天空"): "背景词",
-            ("环境", "季节"): "背景词",
-            ("环境", "氛围"): "背景词",
-            ("环境", "水"): "背景词",
-            ("人物", "对象"): "人物对象词",
-            ("人物", "翅膀"): "角色特征词",
-            ("人物", "眼睛"): "角色特征词",
-            ("人物", "头发发型"): "角色特征词",
-            ("人物", "肩部"): "角色部位词",
-            ("人物", "腿部"): "角色部位词",
-            ("人物", "腹部"): "角色部位词",
-            ("人物", "腰部"): "角色部位词",
-            ("人物", "指甲"): "角色部位词",
-            ("人物", "身材"): "角色部位词",
-            ("人物", "胸部"): "性征部位词",
-            ("人物", "性器官"): "性征部位词",
-            ("服饰", "正装"): "服饰词",
-            ("服饰", "衣服风格"): "服饰词",
-            ("服饰", "上半身服装"): "服饰词",
-            ("服饰", "裙子"): "服饰词",
-            ("服饰", "裤子"): "服饰词",
-            ("服饰", "衣服套装"): "服饰词",
-            ("服饰", "袜子"): "服饰词",
-            ("服饰", "鞋子"): "服饰词",
-            ("服饰", "衣服花纹"): "服饰词",
-            ("服饰", "衣服装饰"): "服饰词",
-            ("服饰", "围巾"): "服饰词",
-            ("服饰", "头部装饰物"): "服饰词",
-            ("服饰", "手部装饰物"): "服饰词",
-            ("服饰", "脸部装饰物"): "服饰词",
-            ("服饰", "腿部装饰物"): "服饰词",
-            ("服饰", "其他装饰物"): "服饰词",
-            ("表情动作", "性爱动作"): "动作词",
-            ("表情动作", "基础动作"): "动作词",
-            ("表情动作", "手部动作"): "动作词",
-            ("表情动作", "手抓着某物"): "动作词",
-            ("表情动作", "手放在某地"): "动作词",
-            ("表情动作", "手部拿着某物"): "动作词",
-            ("表情动作", "腿部动作"): "动作词",
-            ("表情动作", "其他动作"): "动作词",
-            ("镜头", "人物视觉朝向"): "角色表情词",
-            ("表情动作", "哭"): "角色表情词",
-            ("表情动作", "笑"): "角色表情词",
-            ("表情动作", "生气"): "角色表情词",
-            ("表情动作", "不开心"): "角色表情词",
-            ("表情动作", "蔑视"): "角色表情词",
-            ("表情动作", "其他表情"): "角色表情词",
-            ("人物", "面部"): "角色五官词",
-            ("人物", "脸型"): "角色五官词",
-            ("人物", "眉毛"): "角色五官词",
-            ("人物", "瞳孔"): "角色五官词",
-            ("人物", "鼻子"): "角色五官词",
-            ("人物", "嘴巴"): "角色五官词",
-            ("人物", "牙齿"): "角色五官词",
-            ("人物", "舌头"): "角色五官词",
-            ("镜头", "人物构图"): "镜头词",
-            ("镜头", "特写镜头"): "镜头词",
-            ("镜头", "其他沟通"): "镜头词",
-            ("镜头", "镜头角度"): "镜头词",
-            ("镜头", "效果"): "镜头词",
-        }
-
-    def _get_default_order(self):
-        return ["画师词", "背景词", "人物对象词", "角色特征词", "角色五官词", "角色部位词", "性征部位词", "服饰词",
-                "动作词", "角色表情词", "镜头词", "未归类词"]
-
-    def _clear_cache(self, excel_file, category_mapping, new_category_order, default_category):
-        try:
-            # 创建个临时的sorter生成缓存键
-            temp_sorter = DanbooruTagSorter(
-                excel_file,
-                category_mapping,
-                new_category_order,
-                default_category
-            )
-
-            cache_key = temp_sorter._generate_cache_key()
-            if cache_key in _tag_cache:
-                del _tag_cache[cache_key]
-                print(f"已清除缓存喵:{cache_key}")
-        except Exception as e:
-            print(f"清除缓存失败了喵:{e}")
+    def get_tag(self, tag_bundle, category_name):
+        # 防止空输入崩溃
+        if not tag_bundle or not isinstance(tag_bundle, dict):
+            return ("",)
+        return (tag_bundle.get(category_name.strip(), ""),)
 
 
-class DanbooruTagClearCacheNode:  # 手动清除缓存
+# 手动清除缓存
+class DanbooruTagClearCacheNode:
     @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {},
-            "optional": {}
-        }
-
+    def INPUT_TYPES(cls): return {"required": {}}
     RETURN_TYPES = ()
-    RETURN_NAMES = ()
     FUNCTION = "clear_cache"
     CATEGORY = "Danbooru Tags"
     OUTPUT_NODE = True
-
     def clear_cache(self):
         global _tag_cache
-        cache_count = len(_tag_cache)
         _tag_cache.clear()
-        print(f"已清除所有DanbooruTags缓存喵({cache_count}个缓存项喵)")
+        print("缓存已经清除了喵...")
         return ()
 
 
-# Register nodes
+# Registration 我的回合！注册！
 NODE_CLASS_MAPPINGS = {
     "DanbooruTagSorterNode": DanbooruTagSorterNode,
+    "DanbooruTagGetterNode": DanbooruTagGetterNode,
     "DanbooruTagClearCacheNode": DanbooruTagClearCacheNode
 }
-
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "DanbooruTagSorterNode": "Danbooru Tag Sorter",
+    "DanbooruTagSorterNode": "Danbooru Tag Sorter (Packer)",
+    "DanbooruTagGetterNode": "Danbooru Tag Getter (Extractor)",
     "DanbooruTagClearCacheNode": "Danbooru Tag Clear Cache"
 }
+
+# 都看到这里了球球给我点点Star...(哭
+
+
+
