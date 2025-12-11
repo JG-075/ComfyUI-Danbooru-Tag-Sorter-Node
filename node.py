@@ -10,6 +10,7 @@ import comfy
 
 _tag_cache = {}
 
+
 def load_defaults_from_json():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(current_dir, "defaults_config.json")
@@ -48,17 +49,19 @@ def load_defaults_from_json():
         print(f"Sorter读取配置文件失败喵，请检查defaults_config.json路径及语法是否正确喵: {e}")
         return fallback_mapping, fallback_order
 
+
 # 节点加载时先运行一次初始化默认值
 DEFAULT_MAPPING_TEXT, DEFAULT_ORDER_TEXT = load_defaults_from_json()
+
 
 # Sorter类
 class DanbooruTagSorter:
     def __init__(self, excel_path, category_mapping, new_category_order, default_category="未归类词"):
         self.excel_path = excel_path
-        self.category_mapping = category_mapping # 映射规则 {('原有大类', '原有小类'): '新分类名'}
+        self.category_mapping = category_mapping  # 映射规则 {('原有大类', '原有小类'): '新分类名'}
         self.new_category_order = new_category_order  # 定义输出时各个分类及各个分类的顺序
         self.default_category = default_category
-        self.tag_db = self._load_database_with_cache() # 初始化立刻先尝试加载或从缓存获取数据库
+        self.tag_db = self._load_database_with_cache()  # 初始化立刻先尝试加载或从缓存获取数据库
 
     # 根据原始的大类小类查表，得到新的分类名
     def get_new_category(self, original_category, original_subcategory):
@@ -77,7 +80,7 @@ class DanbooruTagSorter:
             "default_category": self.default_category
         }
         params_str = json.dumps(params, sort_keys=True)
-        hasher = hashlib.md5(params_str.encode(encoding = 'utf-8')).hexdigest()
+        hasher = hashlib.md5(params_str.encode(encoding='utf-8')).hexdigest()
         # 返回MD5
         return hasher
 
@@ -88,7 +91,7 @@ class DanbooruTagSorter:
         if cache_key in _tag_cache:
             print(f"从缓存加载数据库喵:{self.excel_path}")
             return _tag_cache[cache_key]
-        print(f"正在读取数据库喵:{self.excel_path} ...") # 如果缓存未命中，则读取数据库
+        print(f"正在读取数据库喵:{self.excel_path} ...")  # 如果缓存未命中，则读取数据库
 
         # 基础校验
         if not self.excel_path or not os.path.exists(self.excel_path):
@@ -96,23 +99,23 @@ class DanbooruTagSorter:
             return {}
 
         try:
-            # 读取csv或者excel文件
+            #读取csv或者excel文件
             if self.excel_path.endswith('.csv'):
                 df = pd.read_csv(self.excel_path)
             else:
                 df = pd.read_excel(self.excel_path)
 
             tag_db = {}
-            # 遍历每一行，构建哈希表查询
+            #遍历每一行，构建哈希表查询
             for index, row in df.iterrows():
-                # 清洗，转小写、去空格
+                #清洗，转小写、去空格
                 eng_tag = str(row['english']).strip().lower()
                 cat = str(row['category']).strip()
                 sub = str(row['subcategory']).strip()
 
-                # 计算该tag映射后是谁家的兵
+                #计算该tag映射后是谁家的兵
                 new_cat = self.get_new_category(cat, sub)
-                # 所有的下划线都替换为空格，匹配输入习惯
+                #所有的下划线都替换为空格以匹配输入习惯
                 clean_key = eng_tag.replace('_', ' ')
                 tag_db[clean_key] = {
                     'original': eng_tag,
@@ -160,10 +163,11 @@ class DanbooruTagSorter:
                 regex_pattern = re.compile(regex_blacklist, re.IGNORECASE)
             except re.error as e:
                 print(f"正则表达式写错了喵:{e}")
-        # 初始化分类buckets
+        #初始化分类桶
         new_category_buckets = defaultdict(list)
         unmatched_tags = []
 
+        allowed_categories_set = set(self.new_category_order)
         # 遍历每一个输入tag进行匹配
         for tag in input_tags:
             tag_clean = tag.strip()
@@ -172,31 +176,36 @@ class DanbooruTagSorter:
             if (tag_lower in exact_blacklist_set or
                     (regex_pattern and regex_pattern.search(tag_clean))):
                 continue
-            lookup_key = tag_lower.replace('_', ' ')# 构造查询Key
+            lookup_key = tag_lower.replace('_', ' ')  # 构造查询Key
             if lookup_key in self.tag_db:  # 缓存命中
                 info = self.tag_db[lookup_key]
                 group_key = info['new_category']
-                # 将(rank, tag)存入对应分类的桶，rank用于后续组内排序
-                new_category_buckets[group_key].append((info['rank'], tag))
+                # 检查该分类是否在Order列表中
+                if group_key in allowed_categories_set:
+                    # 如果在Order里就正常归类
+                    new_category_buckets[group_key].append((info['rank'], tag))
+                else:
+                    # 如果mapping有这个分类，但order里被删除了，视为未匹配，归入Default
+                    unmatched_tags.append(tag)
             else:
                 # 缓存未命中就丢到未匹配列表
                 unmatched_tags.append(tag)
 
         #构建输出
-        # categorized_tags给Getter节点用
+        #categorized_tags给Getter节点用
         categorized_tags = {}
         for category in self.new_category_order:
             categorized_tags[category] = ""
         final_lines = []
 
-        # 将列表转为"tag1, tag2, "格式
+        #将列表转为"tag1, tag2, "格式
         def format_tag_list(tag_list):
             if not tag_list:
                 return ""
             else:
                 return ", ".join(tag_list) + ", "
 
-        #按照用户定义的顺序new_category_order组装
+        # 按照用户定义的顺序new_category_order组装
         for category in self.new_category_order:
             if category in new_category_buckets:
                 # 组内排序，根据数据库中的rank排序
@@ -210,36 +219,21 @@ class DanbooruTagSorter:
                 final_lines.append(tags_str)
                 # 处理完后从桶中删除，后续可以处理剩余分类
                 del new_category_buckets[category]
-
-        # 处理Order中未定义但Mapping中缺存在的分类，防止漏掉数据
-        remaining_categories = list(new_category_buckets.keys())
-        if remaining_categories:
-            for category in sorted(remaining_categories):
-                items = sorted(new_category_buckets[category], key=lambda x: x[0])
-                tags_str = format_tag_list([item[1] for item in items])
-                if category not in categorized_tags:
-                    categorized_tags[category] = tags_str
-                if add_category_comment:
-                    final_lines.append(f"{category}:")
-                final_lines.append(tags_str)
-
-        #处理完全未匹配的Tags
+        # 上面的循环保证只有order中的Key会进桶，不需要再把order之外的Key追加到末尾了
+        # 处理完全未匹配的Tags (包含数据库没找到的，以及被从Order里踢出去的)
         if unmatched_tags:
             unmatched_str = format_tag_list(unmatched_tags)
             target_unk = self.default_category
             if target_unk not in categorized_tags:
                 categorized_tags[target_unk] = ""
-            categorized_tags[target_unk] += unmatched_str # 追加到默认
+            categorized_tags[target_unk] += unmatched_str  #追加到默认
             if add_category_comment:
                 final_lines.append(f"{target_unk}:")
             final_lines.append(unmatched_str)
         return "\n".join(final_lines), categorized_tags
 
 
-
-
-
-#ComfyUI
+# ComfyUI
 class DanbooruTagSorterNode:
     @classmethod
     def INPUT_TYPES(cls):
@@ -249,7 +243,7 @@ class DanbooruTagSorterNode:
                 "tags": ("STRING", {"multiline": True, "default": "", "placeholder": "1girl, solo..."}),
             },
             "optional": {
-                "excel_file": ("STRING", {"multiline": False}),
+                "excel_file": ("STRING", {"multiline": False, "default": "danbooru_tags.xlsx"}),
                 "category_mapping": ("STRING", {
                     "multiline": True,
                     "default": DEFAULT_MAPPING_TEXT,  # 加载自同目录json
@@ -272,27 +266,37 @@ class DanbooruTagSorterNode:
                 "is_comment": ("BOOLEAN", {"default": True, "label": "保留注释"}),
             }
         }
+
     RETURN_TYPES = ("TAG_BUNDLE", "STRING")
     RETURN_NAMES = ("分类数据包", "ALL_TAGS")
     FUNCTION = "process"
     CATEGORY = "Danbooru Tags"
 
-    def process(self, tags, excel_file="", category_mapping="", new_category_order="",
+    def process(self, tags, excel_file="danbooru_tags.xlsx", category_mapping="", new_category_order="",
                 default_category="未归类词", regex_blacklist="", tag_blacklist="",
                 deduplicate_tags=False, validation=True, force_reload=False, is_comment=True):
 
+        # 自动定位
+        current_DIR = os.path.dirname(os.path.abspath(__file__))
+        data_base_dir = os.path.join(current_DIR, "tags_database")
+        # 判断绝对/相对
+        if os.path.isabs(excel_file) and os.path.exists(excel_file):
+            final_excel_path = excel_file
+        else:
+            final_excel_path = os.path.join(data_base_dir, excel_file)  # 不是就返回相对
+
         def parse_input_data(raw_input, default_text, expected_type):
-            #如果输入已经是预期的对象Dict/List就直接返回
+            # 如果输入已经是预期的对象Dict/List就直接返回
             if isinstance(raw_input, expected_type):
                 return raw_input
-            #如果是其他非字符串对象就返回到默认文本
+            # 如果是其他非字符串对象就返回到默认文本
             if not isinstance(raw_input, str):
                 raw_input = default_text
-            #此时确认为字符串，去除首尾空格
+            # 此时确认为字符串，去除首尾空格
             text = raw_input.strip()
             if not text:
                 text = default_text
-            #尝试解析
+            # 尝试解析
             try:
                 return json.loads(text)
             except:
@@ -308,7 +312,8 @@ class DanbooruTagSorterNode:
                     except:
                         # 默认值都挂了就返回空结构
                         return {} if expected_type is dict else []
-        #解析
+
+        # 解析
         try:
             cat_map = parse_input_data(category_mapping, DEFAULT_MAPPING_TEXT, dict)
         except Exception as e:
@@ -320,7 +325,7 @@ class DanbooruTagSorterNode:
             print(f"Order解析错误喵...{e}")
             cat_order = []
 
-        #校验Mapping和Order是否都有
+        # 校验Mapping和Order是否都有
         if validation:
             used = set(cat_map.values())
             defined = set(cat_order)
@@ -333,9 +338,12 @@ class DanbooruTagSorterNode:
         if force_reload:
             global _tag_cache
             _tag_cache.clear()
-        sorter = DanbooruTagSorter(excel_file, cat_map, cat_order, default_category)
+
+        # 将处理好的绝对路径传递给Sorter
+        sorter = DanbooruTagSorter(final_excel_path, cat_map, cat_order, default_category)
         all_str, cat_dict = sorter.process_tags(tags, is_comment, regex_blacklist, tag_blacklist, deduplicate_tags)
         return (cat_dict, all_str)
+
 
 # Getter
 class DanbooruTagGetterNode:
@@ -347,6 +355,7 @@ class DanbooruTagGetterNode:
                 "category_name": ("STRING", {"default": "角色特征词", "multiline": False}),
             }
         }
+
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("Tag String",)
     FUNCTION = "get_tag"
@@ -363,10 +372,12 @@ class DanbooruTagGetterNode:
 class DanbooruTagClearCacheNode:
     @classmethod
     def INPUT_TYPES(cls): return {"required": {}}
+
     RETURN_TYPES = ()
     FUNCTION = "clear_cache"
     CATEGORY = "Danbooru Tags"
     OUTPUT_NODE = True
+
     def clear_cache(self):
         global _tag_cache
         _tag_cache.clear()
@@ -386,7 +397,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DanbooruTagClearCacheNode": "Danbooru Tag Clear Cache"
 }
 
-# 都看到这里了球球给我点点Star...(哭
-
-
-
+# 都看到这里了球球给我点点Star吧...(哭
