@@ -5,10 +5,10 @@
 [](https://www.google.com/search?q=LICENSE)
 
 你是否还在为别人给的串很难看懂而烦恼？是否还在为反推出一堆史山tag而焦虑？  
-一个高效的 Danbooru 标签分类器 ComfyUI 节点，能够自动将输入的杂乱 Danbooru 标签按照您自定义的类别，在**毫秒级**进行智能分类和排序！  
+一个高效的 Danbooru 标签分类器 ComfyUI 节点，能够自动将输入的杂乱 Danbooru 标签按照您自定义的数据库和映射规则，在**毫秒级**进行自动分类、排序、去重，并支持分流输出！  
 开发用于配合 WD1.4 反推图片使用。
 
-觉得有用请点个 Star 吧\~！
+*觉得有用请点个 ⭐Star⭐ 吧\~！*
 
 ## V2.1 Update
 
@@ -83,7 +83,14 @@ pip install -r requirements.txt
       - 在 Getter 的 `category_name` 中输入你想提取的分类名（例如：`服饰词`）。
 6.  **本项目附带无脑懒人分类工作流示例，直接下载使用即可。**
 
-### Tag黑名单
+### (V2.1) 屏蔽/隐藏特定分类
+当你需要暂时**不输出**某个分类（例如不想让 `画师词` 分类出现在 `ALL_TAGS` 的分类结果中），不需要修改复杂的 Mapping 映射规则，只需简单两步：  
+
+1.  将 **`validation` (配置校验)** 设置为 `False`。
+2.  在 **`new_category_order`** 列表中（即节点第三个文本框），**删除**你不想独立显示的分类名称。
+3.  此时，在 ALL_TAGS 输出结果中，所有 `画师词` 都会被移动到最后；Getter 节点设置为 `画师词` 时，无法获取到被删除的分类，输出内容为空。
+
+### (V2.0) Tag黑名单
 
 **黑名单过滤**  
 
@@ -199,7 +206,7 @@ looking at viewer, smile,
 | `regex_blacklist` | STRING | "" | **(V2.0)** 正则表达式黑名单，匹配到的Tag会被剔除 |
 | `tag_blacklist` | STRING | "" | **(V2.0)** 精确Tag黑名单，匹配到的Tag会被剔除 |
 | `deduplicate_tags` | BOOLEAN | False | **(V2.0)** 是否自动去除重复的Tag |
-| `validation` | BOOLEAN | True | **(V2.0)** 是否校验Mapping和Order的一致性 |
+| `validation` | BOOLEAN | True | **(V2.1)** 开启时若 Mapping 与 Order 不一致会报错；**关闭时允许通过删除 Order 元素来降级分类**。 |
 | `force_reload` | BOOLEAN | False | 强制重新加载数据库 |
 | `is_comment` | BOOLEAN | True | 是否在ALL\_TAGS输出中添加分类注释 |
 
@@ -261,3 +268,4 @@ looking at viewer, smile,
   - `category`: 原始父类
   - `subcategory`: 原始子类
 
+### 祝玩得愉快！  
