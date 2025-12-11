@@ -125,7 +125,7 @@ looking at viewer, smile,
 solo, solo, 
 未归类词:
 masterpiece, best quality,
---------------输出结果带注释
+----输出结果带注释
 ```
 
 **当 is\_comment 为 False 时：**
@@ -139,7 +139,7 @@ school uniform,
 looking at viewer, smile, 
 solo, solo, 
 masterpiece, best quality,
---------------输出结果无注释
+----输出结果无注释
 ```
 
 **当 黑名单列表 为 smile, classroom  时：**
@@ -152,7 +152,7 @@ school uniform,
 looking at viewer, 
 solo, solo, 
 masterpiece, best quality,
---------------输出结果没有“smile, classroom, ”这两个tag
+----输出结果没有“smile, classroom, ”这两个tag
 ```
 
 **当 deduplicate\_tags(自动去重) 为 True 时：**
@@ -164,7 +164,8 @@ bad hands,
 school uniform, 
 looking at viewer, 
 solo, 
-masterpiece, best quality, 
+masterpiece, best quality,
+----输出结果中"solo"仅出现一次（本项目采用正序遍历，默认保留正向第一次出现的tag）
 ```
 
 ### 输出示例 (由Packer的分类数据包端口输出，交由Extractor解包)
@@ -172,10 +173,9 @@ masterpiece, best quality,
 **当 Extractor 的 category\_name == 角色表情词 且 黑名单为空 时**
 
 ```text
-looking at viewer, smile, 
+looking at viewer, smile,
+----输出结果仅包含大类为“角色表情词”的tags
 ```
-
-
 
 
 ## 🔧 节点接口说明
