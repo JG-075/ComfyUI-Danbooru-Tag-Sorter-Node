@@ -104,7 +104,9 @@ pip install -r requirements.txt
 
 ### 数据库配置
 
-Danbooru 标签表格在本项目文件夹 `tags_database` 中，在 `excel_file` 参数中填入绝对路径即可（记得删除路径两边的引号）。
+Danbooru 标签表格在本项目文件夹 `tags_database` 中。  
+节点默认查找本项目根目录的 `tags_database` 文件夹中的数据库文件，如果你没有自己配置数据库的需求，则不需要更改路径；  
+该节点同时兼容用户输入绝对路径，如果无法正常工作，请检查路径中是否填入多余的空格及引号等无关字符。
 
 ### 性能说明
 
